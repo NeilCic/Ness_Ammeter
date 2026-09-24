@@ -30,3 +30,15 @@ def test_collects_samples_on_schedule(ammeter_type):
     gaps = sampling["measurements_count"] - 1
     allowed_lateness = gaps * 0.02 + 0.02
     assert abs(elapsed - expected_elapsed) < allowed_lateness  # proving we took samples in periods along the duration
+
+
+@pytest.mark.parametrize("ammeter_type", AMMETERS)
+def test_analysis_matches_the_samples(ammeter_type):
+    result = AmmeterTestFramework().analyze(ammeter_type)
+    samples = result["samples"]
+
+    assert result["minimum"] == min(samples)
+    assert result["maximum"] == max(samples)
+    assert result["mean"] == pytest.approx(sum(samples) / len(samples))
+    assert result["minimum"] <= result["median"] <= result["maximum"]
+    assert result["standard_deviation"] >= 0

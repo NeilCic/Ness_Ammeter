@@ -1,4 +1,5 @@
 import time
+import statistics
 
 from Ammeters.client import request_current_from_ammeter
 from ..utils.config import load_config
@@ -54,6 +55,10 @@ class AmmeterTestFramework:
             )
         return count, frequency, expected_duration
 
+    def analyze(self, ammeter_type: str) -> dict:
+        samples = self.collect_samples(ammeter_type)
+        return {"samples": samples, **summarize_samples(samples)}
+
     @staticmethod
     def _wait_until(deadline: float) -> None:
         while True:
@@ -75,3 +80,15 @@ def _whole_count(value: float) -> int:
     if abs(value - round(value)) > 1e-6:
         raise ValueError("measurements_count must be a whole number")
     return int(round(value))
+
+
+def summarize_samples(samples: list[float]) -> dict[str, float]:
+    if len(samples) < 2:
+        raise ValueError("At least two measurements are required to compute a standard deviation")
+    return {
+        "mean": statistics.mean(samples),
+        "median": statistics.median(samples),
+        "standard_deviation": statistics.stdev(samples),
+        "minimum": min(samples),
+        "maximum": max(samples),
+    }
