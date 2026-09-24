@@ -101,11 +101,24 @@ class AmmeterTestFramework:
 
     def load_run(self, run_id: str) -> dict:
         path = Path(self.results_dir) / f"{run_id}.json"
+        if not path.is_file():
+            raise ValueError(f"No run with id {run_id}")
         return json.loads(path.read_text(encoding="utf-8"))
+
+    def list_runs(self, ammeter_type: str) -> list[dict]:
+        directory = Path(self.results_dir)
+        if not directory.exists():
+            return []
+        runs = []
+        for path in directory.glob("*.json"):
+            run = json.loads(path.read_text(encoding="utf-8"))
+            if run["ammeter_type"] == ammeter_type:
+                runs.append(run)
+        return sorted(runs, key=lambda run: run["started_at"])
 
     def compare_to_previous(self, record: dict) -> dict:
         earlier = [
-            run for run in self._saved_runs(record["ammeter_type"])
+            run for run in self.list_runs(record["ammeter_type"])
             if run["run_id"] != record["run_id"] and run["started_at"] < record["started_at"]
         ]
         limit = self.config["result_management"]["compare_with_last"]
@@ -121,17 +134,6 @@ class AmmeterTestFramework:
                 for run in recent
             ],
         }
-
-    def _saved_runs(self, ammeter_type: str) -> list[dict]:
-        directory = Path(self.results_dir)
-        if not directory.exists():
-            return []
-        runs = []
-        for path in directory.glob("*.json"):
-            run = json.loads(path.read_text(encoding="utf-8"))
-            if run["ammeter_type"] == ammeter_type:
-                runs.append(run)
-        return sorted(runs, key=lambda run: run["started_at"])
 
     def _plots_enabled(self) -> bool:
         visualization = self.config.get("analysis", {}).get("visualization", {})

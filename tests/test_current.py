@@ -56,6 +56,9 @@ def test_records_a_plot_and_compares_with_the_previous_run(tmp_path):
     previous = [framework.record_run(DEFAULT_AMMETER) for _ in range(limit + 1)]
     latest = framework.record_run(DEFAULT_AMMETER)
 
+    listed = [run["run_id"] for run in framework.list_runs(DEFAULT_AMMETER)]
+    assert listed == [run["run_id"] for run in previous] + [latest["run_id"]]
+
     plot_path = tmp_path / latest["plot"]
     assert plot_path.is_file()
     assert plot_path.stat().st_size > 0
@@ -72,3 +75,9 @@ def test_records_a_plot_and_compares_with_the_previous_run(tmp_path):
         latest["standard_deviation"] - previous[-1]["standard_deviation"]
     )
     assert comparison["compared"][-1]["run_id"] == previous[1]["run_id"]
+
+
+def test_load_run_rejects_an_unknown_id(tmp_path):
+    framework = AmmeterTestFramework(results_dir=tmp_path)
+    with pytest.raises(ValueError, match="missing"):
+        framework.load_run("missing")
