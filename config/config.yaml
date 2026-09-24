@@ -17,8 +17,16 @@ ammeters:
 
 analysis:
   statistical_metrics:
+    - mean
+    - median
+    - standard_deviation
+    - minimum
+    - maximum
   visualization:
     enabled: true
     plot_types:
+      - samples
 
 result_management:
+  directory: results
+  compare_with_last: 5

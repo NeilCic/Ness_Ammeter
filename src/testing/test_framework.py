@@ -1,13 +1,25 @@
 import time
 import statistics
+import json
+import uuid
+
+from datetime import datetime, timezone
+from pathlib import Path
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 from Ammeters.client import request_current_from_ammeter
 from ..utils.config import load_config
 
 
+
+
 class AmmeterTestFramework:
-    def __init__(self, config_path: str = "config/config.yaml"):
+    def __init__(self, config_path: str = "config/config.yaml", results_dir: str | None = None):
         self.config = load_config(config_path)
+        configured_dir = self.config.get("result_management", {}).get("directory", "results")
+        self.results_dir = results_dir or configured_dir
         
     def run_test(self, ammeter_type: str) -> float:
         try:
@@ -57,7 +69,74 @@ class AmmeterTestFramework:
 
     def analyze(self, ammeter_type: str) -> dict:
         samples = self.collect_samples(ammeter_type)
-        return {"samples": samples, **summarize_samples(samples)}
+        metrics = self.config["analysis"]["statistical_metrics"]
+        return {"samples": samples, **summarize_samples(samples, metrics)}
+
+    def record_run(self, ammeter_type: str) -> dict:
+        analysis = self.analyze(ammeter_type)
+        run_id = uuid.uuid4().hex
+        record = {
+            "run_id": run_id,
+            "ammeter_type": ammeter_type,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "sampling": self.config["testing"]["sampling"],
+            "samples": analysis["samples"],
+            "mean": analysis["mean"],
+            "median": analysis["median"],
+            "standard_deviation": analysis["standard_deviation"],
+            "minimum": analysis["minimum"],
+            "maximum": analysis["maximum"],
+            "plot": None,
+        }
+
+        directory = Path(self.results_dir)
+        directory.mkdir(parents=True, exist_ok=True)
+        if self._plots_enabled():
+            plot_name = f"{run_id}.png"
+            save_sample_plot(directory / plot_name, ammeter_type, record)
+            record["plot"] = plot_name
+
+        (directory / f"{run_id}.json").write_text(json.dumps(record), encoding="utf-8")
+        return record
+
+    def load_run(self, run_id: str) -> dict:
+        path = Path(self.results_dir) / f"{run_id}.json"
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def compare_to_previous(self, record: dict) -> dict:
+        earlier = [
+            run for run in self._saved_runs(record["ammeter_type"])
+            if run["run_id"] != record["run_id"] and run["started_at"] < record["started_at"]
+        ]
+        limit = self.config["result_management"]["compare_with_last"]
+        recent = list(reversed(earlier[-limit:]))
+        return {
+            "previous_count": len(earlier),
+            "compared": [
+                {
+                    "run_id": run["run_id"],
+                    "mean_difference": record["mean"] - run["mean"],
+                    "standard_deviation_difference": record["standard_deviation"] - run["standard_deviation"],
+                }
+                for run in recent
+            ],
+        }
+
+    def _saved_runs(self, ammeter_type: str) -> list[dict]:
+        directory = Path(self.results_dir)
+        if not directory.exists():
+            return []
+        runs = []
+        for path in directory.glob("*.json"):
+            run = json.loads(path.read_text(encoding="utf-8"))
+            if run["ammeter_type"] == ammeter_type:
+                runs.append(run)
+        return sorted(runs, key=lambda run: run["started_at"])
+
+    def _plots_enabled(self) -> bool:
+        visualization = self.config.get("analysis", {}).get("visualization", {})
+        plot_types = visualization.get("plot_types") or []
+        return bool(visualization.get("enabled")) and "samples" in plot_types
 
     @staticmethod
     def _wait_until(deadline: float) -> None:
@@ -82,13 +161,38 @@ def _whole_count(value: float) -> int:
     return int(round(value))
 
 
-def summarize_samples(samples: list[float]) -> dict[str, float]:
-    if len(samples) < 2:
+def summarize_samples(samples: list[float], metrics: list[str]) -> dict[str, float]:
+    if "standard_deviation" in metrics and len(samples) < 2:
         raise ValueError("At least two measurements are required to compute a standard deviation")
-    return {
+    available = {
         "mean": statistics.mean(samples),
         "median": statistics.median(samples),
         "standard_deviation": statistics.stdev(samples),
         "minimum": min(samples),
         "maximum": max(samples),
     }
+    return {name: available[name] for name in metrics}
+
+
+def save_sample_plot(path: Path, ammeter_type: str, record: dict) -> None:
+    samples = record["samples"]
+    mean = record["mean"]
+    standard_deviation = record["standard_deviation"]
+    indexes = list(range(1, len(samples) + 1))
+    figure, axis = plt.subplots()
+    axis.plot(indexes, samples, marker="o", label="current")
+    axis.axhline(mean, linestyle="--", label="mean")
+    axis.fill_between(
+        indexes,
+        [mean - standard_deviation] * len(samples),
+        [mean + standard_deviation] * len(samples),
+        alpha=0.2,
+        label="mean ± standard deviation",
+    )
+    axis.set_xticks(indexes)
+    axis.set_xlabel("Sample")
+    axis.set_ylabel("Current (A)")
+    axis.set_title(ammeter_type)
+    axis.legend()
+    figure.savefig(path)
+    plt.close(figure)
