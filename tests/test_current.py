@@ -1,14 +1,40 @@
 import math
+import socket
+import threading
 import time
 
 import pytest
 
+from Ammeters.client import request_current_from_ammeter
 from src.testing.test_framework import AmmeterTestFramework
 from src.utils.config import load_config
 
 AMMETERS = list(load_config("config/config.yaml")["ammeters"])
 assert AMMETERS, "config has no ammeters"
 DEFAULT_AMMETER = AMMETERS[0]
+
+
+def test_request_times_out_when_the_meter_stays_silent():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("localhost", 0))
+    server.listen()
+    port = server.getsockname()[1]
+    release = threading.Event()
+
+    def accept_and_hold():
+        connection, _ = server.accept()
+        with connection:
+            connection.recv(1024)
+            release.wait(2)
+
+    threading.Thread(target=accept_and_hold, daemon=True).start()
+    try:
+        wrong_cmd = b"MEASURE"
+        with pytest.raises(RuntimeError, match=f"No response from port {port} within 0.2 seconds"):
+            request_current_from_ammeter(port, wrong_cmd, 0.2)
+    finally:
+        release.set()
+        server.close()
 
 
 @pytest.mark.parametrize("ammeter_type", AMMETERS)

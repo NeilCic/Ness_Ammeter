@@ -13,8 +13,6 @@ from Ammeters.client import request_current_from_ammeter
 from ..utils.config import load_config
 
 
-
-
 class AmmeterTestFramework:
     def __init__(self, config_path: str = "config/config.yaml", results_dir: str | None = None):
         self.config = load_config(config_path)
@@ -27,7 +25,10 @@ class AmmeterTestFramework:
         except KeyError:
             known = ", ".join(self.config.get("ammeters", {}))
             raise ValueError(f"Unknown ammeter '{ammeter_type}'. Known: {known}") from None
-        return request_current_from_ammeter(ammeter["port"], ammeter["command"].encode("utf-8"))
+        timeout = self.config["testing"]["request_timeout_seconds"]
+        return request_current_from_ammeter(
+            ammeter["port"], ammeter["command"].encode("utf-8"), timeout
+        )
 
     def collect_samples(self, ammeter_type: str) -> list[float]:
         readings = self._collect_readings(ammeter_type)["readings"]
