@@ -81,3 +81,15 @@ def test_load_run_rejects_an_unknown_id(tmp_path):
     framework = AmmeterTestFramework(results_dir=tmp_path)
     with pytest.raises(ValueError, match="missing"):
         framework.load_run("missing")
+
+
+def test_ranks_meters_by_relative_spread():
+    ranking = AmmeterTestFramework().rank_meters()
+
+    assert {row["ammeter_type"] for row in ranking} == set(AMMETERS)
+    spreads = [row["coefficient_of_variation"] for row in ranking]
+    assert spreads == sorted(spreads)
+    for row in ranking:
+        assert row["coefficient_of_variation"] == pytest.approx(
+            row["standard_deviation"] / abs(row["mean"])
+        )

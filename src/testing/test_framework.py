@@ -140,6 +140,22 @@ class AmmeterTestFramework:
         plot_types = visualization.get("plot_types") or []
         return bool(visualization.get("enabled")) and "samples" in plot_types
 
+    def rank_meters(self) -> list[dict]:
+        ranked = []
+        for ammeter_type in self.config["ammeters"]:
+            analysis = self.analyze(ammeter_type)
+            mean = analysis["mean"]
+            standard_deviation = analysis["standard_deviation"]
+            if mean == 0:
+                raise ValueError(f"{ammeter_type} mean is 0, so relative spread is undefined")
+            ranked.append({
+                "ammeter_type": ammeter_type,
+                "mean": mean,
+                "standard_deviation": standard_deviation,
+                "coefficient_of_variation": standard_deviation / abs(mean),
+            })
+        return sorted(ranked, key=lambda row: row["coefficient_of_variation"])
+
     @staticmethod
     def _wait_until(deadline: float) -> None:
         while True:
