@@ -14,6 +14,7 @@ STARTERS = {
 
 def start_emulators(config: dict, wait_seconds: float = 1) -> None:
     for name, ammeter_cls in STARTERS.items():
-        port = config["ammeters"][name]["port"]
-        threading.Thread(target=ammeter_cls(port).start_server, daemon=True).start()
+        ammeter = ammeter_cls(config["ammeters"][name]["port"])
+        server = ammeter.bind_server()
+        threading.Thread(target=ammeter.start_server, args=(server,), daemon=True).start()
     time.sleep(wait_seconds)

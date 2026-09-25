@@ -8,10 +8,16 @@ import pytest
 from Ammeters.client import request_current_from_ammeter
 from src.testing.test_framework import AmmeterTestFramework
 from src.utils.config import load_config
+from src.utils.emulators import start_emulators
 
 AMMETERS = list(load_config("config/config.yaml")["ammeters"])
 assert AMMETERS, "config has no ammeters"
 DEFAULT_AMMETER = AMMETERS[0]
+
+
+def test_start_emulators_reports_a_taken_port():
+    with pytest.raises(OSError, match="Port 5000 is already taken"):
+        start_emulators(load_config("config/config.yaml"), wait_seconds=0)
 
 
 def test_request_times_out_when_the_meter_stays_silent():
