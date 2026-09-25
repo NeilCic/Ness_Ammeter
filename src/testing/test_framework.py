@@ -198,8 +198,7 @@ class AmmeterTestFramework:
 
     def _plots_enabled(self) -> bool:
         visualization = self.config.get("analysis", {}).get("visualization", {})
-        plot_types = visualization.get("plot_types") or []
-        return bool(visualization.get("enabled")) and "samples" in plot_types
+        return bool(visualization.get("enabled"))
 
     def rank_records(self, records: list[dict]) -> list[dict]:
         ranked = []
