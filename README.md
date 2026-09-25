@@ -1,54 +1,47 @@
-# Ammeter Emulators
+# Ammeter test framework
 
-This project provides emulators for different types of ammeters: Greenlee, ENTES, and CIRCUTOR. Each ammeter emulator runs on a separate thread and can respond to current measurement requests.
+Measures current from the Greenlee, ENTES, and CIRCUTOR emulators, saves each run, and ranks the meters by how tightly their readings cluster.
 
-## Project Structure
+## Setup
 
-- `Ammeters/`
-  - `main.py`: Main script to start the ammeter emulators and request current measurements.
-  - `Circutor_Ammeter.py`: Emulator for the CIRCUTOR ammeter.
-  - `Entes_Ammeter.py`: Emulator for the ENTES ammeter.
-  - `Greenlee_Ammeter.py`: Emulator for the Greenlee ammeter.
-  - `base_ammeter.py`: Base class for all ammeter emulators.
-  - `client.py`: Client to request current measurements from the ammeter emulators.
-- `config/`
-  - `config.yaml`: Configuration file for the ammeter emulators.
-- `examples/`
-  - `run_test.py`: super lyze example for run test **don't use it**.
-- `src/`
-  - `testing/`
-    - `AmmeterTester.py`: Class to test the ammeter emulators.
-  - `utils/`
-    - `config.py`: Configuration settings.
-    - `logger.py`: Logging setup.
-    - `Utils.py`: Utility functions, including `generate_random_float`.
+```sh
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-## Usage
+`pytest` is the package added for this project. PyYAML and Matplotlib were already in `requirements.txt` and are the ones the framework uses.
 
-# Ammeter Emulators
+## Run a measurement
 
-## Greenlee Ammeter
+From the project root:
 
-- **Port**: 5000
-- **Command**: `MEASURE_GREENLEE -get_measurement`
-- **Measurement Logic**: Calculates current using voltage (1V - 10V) and (0.1Ω - 100Ω).
-- **Measurement method** : Ohm's Law: I = V / R
-
-## ENTES Ammeter
-
-- **Port**: 5001
-- **Command**: `MEASURE_ENTES -get_data`
-- **Measurement Logic**: Calculates current using magnetic field strength (0.01T - 0.1T) and calibration factor (500 - 2000).
-- **Measurement method** : Hall Effect: I = B * K
-
-## CIRCUTOR Ammeter
-
-- **Port**: 5002
-- **Command**: `MEASURE_CIRCUTOR -get_measurement`
-- **Measurement Logic**: Calculates current using voltage values (0.1V - 1.0V) over a number of samples and a random time step (0.001s - 0.01s).
-- **Measurement method** : Rogowski Coil Integration: I = ∫V dt
-
-To start the ammeter emulators and request current measurements, run the `main.py` script:
 ```sh
 python main.py
 ```
+
+This starts the three emulators, records one run per meter, and prints the ranking. The most consistent meter is first. Rank is standard deviation divided by the mean. Each run is a JSON file and a PNG under `results/`. That folder is gitignored.
+
+A saved example is in `examples/sample_run/`.
+
+## Run the tests
+
+```sh
+pytest
+```
+
+## Design
+
+One reading works for any meter in the config. Sampling uses the count, duration, and frequency together: duration is count divided by frequency, and the last reading is one period earlier because there is no wait after it. `time.sleep` can wake up late, so the timing check allows a small lateness per gap.
+
+Statistics are mean, median, standard deviation, minimum, and maximum. Standard deviation needs two readings. Thirty was not required.
+
+Each run gets an id, metadata, samples, statistics, and a plot of the readings with the mean and a mean ± standard deviation band. History for one meter can be listed and compared with the last N runs.
+
+The cross-meter rank uses standard deviation divided by the mean. The emulators do not measure one shared current, and their ranges differ by orders of magnitude, so a raw standard deviation would favor the smallest numbers. The winner can change from run to run because every reading is random.
+
+Error simulation is off unless `error_simulation.enabled` is true. Then the sample numbered by `fail_on_sample` fails instead of calling the meter.
+
+## Meters
+
+Greenlee, port 5000, `I = V / R`. ENTES, port 5001, `I = B × K`. CIRCUTOR, port 5002, `I = Σ V·dt`.
