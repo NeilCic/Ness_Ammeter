@@ -28,6 +28,7 @@ def test_collects_samples_on_schedule():
     assert len(samples) == sampling["measurements_count"]
     assert all(isinstance(sample, float) and math.isfinite(sample) for sample in samples)
     expected_elapsed = (sampling["measurements_count"] - 1) / sampling["sampling_frequency_hz"]
+    assert sampling["total_duration_seconds"] == pytest.approx(expected_elapsed)
     gaps = sampling["measurements_count"] - 1
     allowed_lateness = gaps * 0.02 + 0.02
     assert abs(elapsed - expected_elapsed) < allowed_lateness  # proving we took samples in periods along the duration

@@ -30,15 +30,24 @@ class AmmeterTestFramework:
         return request_current_from_ammeter(ammeter["port"], ammeter["command"].encode("utf-8"))
 
     def collect_samples(self, ammeter_type: str) -> list[float]:
+        readings = self._collect_readings(ammeter_type)["readings"]
+        return [reading["current"] for reading in readings]
+
+    def _collect_readings(self, ammeter_type: str) -> dict:
         count, frequency, _duration = self._resolve_sampling()
         period = 1.0 / frequency
+        started_at = datetime.now(timezone.utc).isoformat()
         start = time.monotonic()
-        samples = []
+        readings = []
         for index in range(count):
             self._wait_until(start + index * period)
+            taken_at = datetime.now(timezone.utc).isoformat()
             self._simulated_error(ammeter_type, index + 1)
-            samples.append(self.run_test(ammeter_type))
-        return samples
+            readings.append({
+                "current": self.run_test(ammeter_type),
+                "taken_at": taken_at,
+            })
+        return {"started_at": started_at, "readings": readings}
 
     def _resolve_sampling(self) -> tuple[int, float, float]:
         sampling = self.config["testing"]["sampling"]
@@ -54,24 +63,33 @@ class AmmeterTestFramework:
         if count is not None:
             count = _whole_count(count)
         else:
-            count = _whole_count(duration * frequency)
+            count = _whole_count(duration * frequency + 1)
+        if count < 2:
+            raise ValueError("measurements_count must be at least 2 so the samples have a spacing")
 
         if frequency is None:
-            frequency = count / duration
+            frequency = (count - 1) / duration
         elif duration is None:
-            duration = count / frequency
+            duration = (count - 1) / frequency
 
-        expected_duration = count / frequency
+        expected_duration = (count - 1) / frequency
         if abs(duration - expected_duration) > 1e-6:
             raise ValueError(
-                f"Sampling settings disagree: duration should be {expected_duration}, got {duration}"
+                f"Sampling settings disagree: duration should be {expected_duration} "
+                f"((measurements_count - 1) / sampling_frequency_hz), got {duration}"
             )
         return count, frequency, expected_duration
 
     def analyze(self, ammeter_type: str) -> dict:
-        samples = self.collect_samples(ammeter_type)
+        collected = self._collect_readings(ammeter_type)
+        samples = [reading["current"] for reading in collected["readings"]]
         metrics = self.config["analysis"]["statistical_metrics"]
-        return {"samples": samples, **summarize_samples(samples, metrics)}
+        return {
+            "started_at": collected["started_at"],
+            "samples": samples,
+            "sample_times": [reading["taken_at"] for reading in collected["readings"]],
+            **summarize_samples(samples, metrics),
+        }
 
     def record_run(self, ammeter_type: str) -> dict:
         analysis = self.analyze(ammeter_type)
@@ -79,9 +97,10 @@ class AmmeterTestFramework:
         record = {
             "run_id": run_id,
             "ammeter_type": ammeter_type,
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": analysis["started_at"],
             "sampling": self.config["testing"]["sampling"],
             "samples": analysis["samples"],
+            "sample_times": analysis["sample_times"],
             "mean": analysis["mean"],
             "median": analysis["median"],
             "standard_deviation": analysis["standard_deviation"],
@@ -141,21 +160,24 @@ class AmmeterTestFramework:
         plot_types = visualization.get("plot_types") or []
         return bool(visualization.get("enabled")) and "samples" in plot_types
 
-    def rank_meters(self) -> list[dict]:
+    def rank_records(self, records: list[dict]) -> list[dict]:
         ranked = []
-        for ammeter_type in self.config["ammeters"]:
-            analysis = self.analyze(ammeter_type)
-            mean = analysis["mean"]
-            standard_deviation = analysis["standard_deviation"]
+        for record in records:
+            mean = record["mean"]
             if mean == 0:
-                raise ValueError(f"{ammeter_type} mean is 0, so relative spread is undefined")
+                raise ValueError(f"{record['ammeter_type']} mean is 0, so relative spread is undefined")
             ranked.append({
-                "ammeter_type": ammeter_type,
-                "mean": mean,
-                "standard_deviation": standard_deviation,
-                "coefficient_of_variation": standard_deviation / abs(mean),
+                **record,
+                "coefficient_of_variation": record["standard_deviation"] / abs(mean),
             })
         return sorted(ranked, key=lambda row: row["coefficient_of_variation"])
+
+    def rank_meters(self) -> list[dict]:
+        records = []
+        for ammeter_type in self.config["ammeters"]:
+            analysis = self.analyze(ammeter_type)
+            records.append({"ammeter_type": ammeter_type, **analysis})
+        return self.rank_records(records)
 
     def _simulated_error(self, ammeter_type: str, sample_number: int) -> None:
         simulation = self.config.get("error_simulation") or {}

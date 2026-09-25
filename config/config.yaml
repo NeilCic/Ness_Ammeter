@@ -1,7 +1,7 @@
 testing:
   sampling:
     measurements_count: 5
-    total_duration_seconds: 0.5
+    total_duration_seconds: 0.4
     sampling_frequency_hz: 10
 
 ammeters:
