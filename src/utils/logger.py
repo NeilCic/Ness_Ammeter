@@ -1,29 +1,22 @@
 import logging
-import os
 from datetime import datetime
+from pathlib import Path
+
 
 class TestLogger:
-    def __init__(self, test_name: str):
+    __test__ = False
+
+    def __init__(self, test_name: str, log_dir: Path):
         self._test_name = test_name
-        self.logger = self._setup_logger()
-
-    def _setup_logger(self) -> logging.Logger:
-        """
-        הגדרת הלוגר עם פורמט מותאם וכתיבה לקובץ
-        """
-        # יצירת תיקיית הלוגים
-        log_dir = "results/logs"
-        os.makedirs(log_dir, exist_ok=True)
-
-        # הגדרת שם הקובץ עם תאריך ומזהה הבדיקה
+        self.logger = logging.getLogger(f"test_{test_name}_{id(self)}")
+        self.logger.setLevel(logging.INFO)
+        self.logger.propagate = False
+        log_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = f"{log_dir}/{timestamp}_{self._test_name}.log"
-
-        # הגדרת הלוגר
-        logger = logging.getLogger(f"test_{self._test_name}")
-
-
-        return logger
+        self.path = log_dir / f"{timestamp}_{test_name}.log"
+        handler = logging.FileHandler(self.path, encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        self.logger.addHandler(handler)
 
     def info(self, message: str):
         self.logger.info(message)
@@ -35,4 +28,12 @@ class TestLogger:
         self.logger.debug(message)
 
     def warning(self, message: str):
-        self.logger.warning(message) 
+        self.logger.warning(message)
+
+    def close(self):
+        for handler in list(self.logger.handlers):
+            handler.close()
+            self.logger.removeHandler(handler)
+
+
+SESSION_LOG = TestLogger("session", Path("results") / "logs")
