@@ -81,6 +81,36 @@ def test_collects_samples_on_schedule():
     assert abs(elapsed - expected_elapsed) < allowed_lateness  # proving we took samples in periods along the duration
 
 
+def test_sampling_needs_at_least_two_settings():
+    framework = AmmeterTestFramework()
+    framework.config["testing"]["sampling"] = {"measurements_count": 5}
+    SESSION_LOG.info("resolving sampling with only measurements_count set")
+    with pytest.raises(ValueError, match="Set at least two of") as caught:
+        framework._resolve_sampling()
+    SESSION_LOG.info(f"caught {caught.value}")
+
+
+def test_sampling_rejects_a_duration_that_disagrees():
+    framework = AmmeterTestFramework()
+    framework.config["testing"]["sampling"] = {
+        "measurements_count": 5,
+        "total_duration_seconds": 0.5,
+        "sampling_frequency_hz": 10,
+    }
+    SESSION_LOG.info("resolving 5 samples at 10 Hz over 0.5s, which does not match the span between samples")
+    with pytest.raises(ValueError, match=r"duration should be 0\.4") as caught:
+        framework._resolve_sampling()
+    SESSION_LOG.info(f"caught {caught.value}")
+
+
+def test_run_test_rejects_an_unknown_meter():
+    framework = AmmeterTestFramework()
+    SESSION_LOG.info("requesting a current from a meter that is not in the config")
+    with pytest.raises(ValueError, match="Unknown ammeter 'not-a-meter'") as caught:
+        framework.run_test("not-a-meter")
+    SESSION_LOG.info(f"caught {caught.value}")
+
+
 def test_analysis_matches_the_samples():
     SESSION_LOG.info(f"analyzing a sample run from {DEFAULT_AMMETER}")
     result = AmmeterTestFramework().analyze(DEFAULT_AMMETER)
