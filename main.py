@@ -1,38 +1,20 @@
-import threading
-import time
-
-from Ammeters.Circutor_Ammeter import CircutorAmmeter
-from Ammeters.Entes_Ammeter import EntesAmmeter
-from Ammeters.Greenlee_Ammeter import GreenleeAmmeter
-from Ammeters.client import request_current_from_ammeter
-
-GREENLEE_PORT = 5000
-ENTES_PORT = 5001
-CIRCUTOR_PORT = 5002
-
-def run_greenlee_emulator():
-    greenlee = GreenleeAmmeter(GREENLEE_PORT)
-    greenlee.start_server()
-
-def run_entes_emulator():
-    entes = EntesAmmeter(ENTES_PORT)
-    entes.start_server()
-
-def run_circutor_emulator():
-    circutor = CircutorAmmeter(CIRCUTOR_PORT)
-    circutor.start_server()
+from src.testing.test_framework import AmmeterTestFramework
+from src.utils.emulators import STARTERS, start_emulators
 
 if __name__ == "__main__":
-    # Start each ammeter in a separate thread
-    threading.Thread(target=run_greenlee_emulator, daemon=True).start()
-    threading.Thread(target=run_entes_emulator, daemon=True).start()
-    threading.Thread(target=run_circutor_emulator, daemon=True).start()
+    framework = AmmeterTestFramework()
+    start_emulators(framework.config, wait_seconds=5)
 
-    # Wait for the servers to start, if you have problem restarting the servers between runs try increasing sleep time.
-    time.sleep(5)
-
-    request_current_from_ammeter(GREENLEE_PORT, b'MEASURE_GREENLEE -get_measurement')  # Request from Greenlee Ammeter
-    request_current_from_ammeter(ENTES_PORT, b'MEASURE_ENTES -get_data')  # Request from ENTES Ammeter
-    request_current_from_ammeter(CIRCUTOR_PORT, b'MEASURE_CIRCUTOR -get_measurement')  # Request from CIRCUTOR Ammeter
-
-    pass
+    records = [framework.record_run(name) for name in STARTERS]
+    ranking = sorted(
+        records,
+        key=lambda record: record["standard_deviation"] / abs(record["mean"]),
+    )
+    for place, record in enumerate(ranking, start=1):
+        print(
+            '------------------------------------------------------------\n'
+            f"{place}. {record['ammeter_type']}: "
+            f"mean {record['mean']:.4f} A, "
+            f"std {record['standard_deviation']:.4f}, "
+            f"plot {record['plot']}"
+        )
