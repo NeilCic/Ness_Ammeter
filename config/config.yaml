@@ -30,3 +30,8 @@ analysis:
 result_management:
   directory: results
   compare_with_last: 5
+
+error_simulation:
+  enabled: false
+  mode: invalid_reading
+  fail_on_sample: 3

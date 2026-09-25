@@ -36,6 +36,7 @@ class AmmeterTestFramework:
         samples = []
         for index in range(count):
             self._wait_until(start + index * period)
+            self._simulated_error(ammeter_type, index + 1)
             samples.append(self.run_test(ammeter_type))
         return samples
 
@@ -155,6 +156,19 @@ class AmmeterTestFramework:
                 "coefficient_of_variation": standard_deviation / abs(mean),
             })
         return sorted(ranked, key=lambda row: row["coefficient_of_variation"])
+
+    def _simulated_error(self, ammeter_type: str, sample_number: int) -> None:
+        simulation = self.config.get("error_simulation") or {}
+        if not simulation.get("enabled"):
+            return
+        mode = simulation.get("mode")
+        if mode != "invalid_reading":
+            raise ValueError(f"Unknown error simulation mode: {mode}")
+        if sample_number != simulation.get("fail_on_sample"):
+            return
+        raise RuntimeError(
+            f"Simulated error on sample {sample_number} for {ammeter_type}: invalid reading"
+        )
 
     @staticmethod
     def _wait_until(deadline: float) -> None:

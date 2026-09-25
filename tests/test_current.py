@@ -93,3 +93,22 @@ def test_ranks_meters_by_relative_spread():
         assert row["coefficient_of_variation"] == pytest.approx(
             row["standard_deviation"] / abs(row["mean"])
         )
+
+
+def test_simulated_invalid_reading_stops_the_run():
+    framework = AmmeterTestFramework()
+    framework.config["error_simulation"] = {
+        "enabled": True,
+        "mode": "invalid_reading",
+        "fail_on_sample": 1,
+    }
+    with pytest.raises(RuntimeError, match=f"sample 1 for {DEFAULT_AMMETER}"):
+        framework.collect_samples(DEFAULT_AMMETER)
+
+    framework.config["error_simulation"] = {
+        "enabled": True,
+        "mode": "connection_error",
+        "fail_on_sample": 1,
+    }
+    with pytest.raises(ValueError, match=f"Unknown error simulation mode: {framework.config['error_simulation']['mode']}"):
+        framework.collect_samples(DEFAULT_AMMETER)
