@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from Ammeters.client import request_current_from_ammeter
+from Ammeters.client import CURRENT_UNIT, request_current_from_ammeter
 from src.testing.test_framework import AmmeterTestFramework
 from src.utils.config import load_config
 from src.utils.emulators import start_emulators
@@ -55,7 +55,7 @@ def test_request_times_out_when_the_meter_stays_silent():
 def test_returns_a_finite_current(ammeter_type):
     SESSION_LOG.info(f"requesting one current from {ammeter_type}")
     current = AmmeterTestFramework().run_test(ammeter_type)
-    SESSION_LOG.info(f"{ammeter_type} returned {current} A")
+    SESSION_LOG.info(f"{ammeter_type} returned {current} {CURRENT_UNIT}")
     assert isinstance(current, float)
     assert math.isfinite(current)
 

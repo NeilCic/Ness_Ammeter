@@ -9,7 +9,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from Ammeters.client import request_current_from_ammeter
+from Ammeters.client import CURRENT_UNIT, request_current_from_ammeter
 from ..utils.config import load_config
 
 
@@ -117,6 +117,7 @@ class AmmeterTestFramework:
             record = {
                 "run_id": uuid.uuid4().hex,
                 "ammeter_type": ammeter_type,
+                "unit": CURRENT_UNIT,
                 "started_at": error.started_at,
                 "sampling": self.config["testing"]["sampling"],
                 "samples": [reading["current"] for reading in error.readings],
@@ -133,6 +134,7 @@ class AmmeterTestFramework:
         record = {
             "run_id": run_id,
             "ammeter_type": ammeter_type,
+            "unit": CURRENT_UNIT,
             "started_at": analysis["started_at"],
             "sampling": self.config["testing"]["sampling"],
             "samples": analysis["samples"],
@@ -289,7 +291,7 @@ def save_sample_plot(path: Path, ammeter_type: str, record: dict) -> None:
     )
     axis.set_xticks(indexes)
     axis.set_xlabel("Sample")
-    axis.set_ylabel("Current (A)")
+    axis.set_ylabel(f"Current ({CURRENT_UNIT})")
     axis.set_title(ammeter_type)
     axis.legend()
     figure.savefig(path)

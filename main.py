@@ -1,3 +1,4 @@
+from Ammeters.client import CURRENT_UNIT
 from src.testing.test_framework import AmmeterTestFramework
 from src.utils.emulators import STARTERS, start_emulators
 
@@ -11,11 +12,11 @@ if __name__ == "__main__":
         print(
             "------------------------------------------------------------\n"
             f"{place}. {record['ammeter_type']}: "
-            f"mean {record['mean']:.4f} A, "
-            f"median {record['median']:.4f} A, "
-            f"std {record['standard_deviation']:.4f}, "
-            f"min {record['minimum']:.4f} A, "
-            f"max {record['maximum']:.4f} A, "
+            f"mean {record['mean']:.4f} {CURRENT_UNIT}, "
+            f"median {record['median']:.4f} {CURRENT_UNIT}, "
+            f"std {record['standard_deviation']:.4f} {CURRENT_UNIT}, "
+            f"min {record['minimum']:.4f} {CURRENT_UNIT}, "
+            f"max {record['maximum']:.4f} {CURRENT_UNIT}, "
             f"relative spread {record['coefficient_of_variation']:.4f}, "
             f"plot {record['plot']}"
         )
@@ -27,6 +28,6 @@ if __name__ == "__main__":
         for earlier in compared:
             print(
                 f"  {earlier['run_id']}: "
-                f"mean {earlier['mean_difference']:+.4f} A, "
-                f"std {earlier['standard_deviation_difference']:+.4f}"
+                f"mean {earlier['mean_difference']:+.4f} {CURRENT_UNIT}, "
+                f"std {earlier['standard_deviation_difference']:+.4f} {CURRENT_UNIT}"
             )
