@@ -139,3 +139,32 @@ def test_simulated_invalid_reading_stops_the_run():
     }
     with pytest.raises(ValueError, match=f"Unknown error simulation mode: {framework.config['error_simulation']['mode']}"):
         framework.collect_samples(DEFAULT_AMMETER)
+
+
+def test_simulated_failure_is_saved_and_skipped_in_comparison(tmp_path):
+    framework = AmmeterTestFramework(results_dir=tmp_path)
+    first = framework.record_run(DEFAULT_AMMETER)
+    framework.config["error_simulation"] = {
+        "enabled": True,
+        "mode": "invalid_reading",
+        "fail_on_sample": 3,
+    }
+    with pytest.raises(RuntimeError, match=f"sample 3 for {DEFAULT_AMMETER}"):
+        framework.record_run(DEFAULT_AMMETER)
+
+    failed = next(run for run in framework.list_runs(DEFAULT_AMMETER) if "error" in run)
+    assert len(failed["samples"]) == 2
+    assert len(failed["sample_times"]) == 2
+    assert "mean" not in failed
+    assert "plot" not in failed
+    assert failed["error"] == {
+        "mode": "invalid_reading",
+        "sample_number": 3,
+        "message": f"Simulated error on sample 3 for {DEFAULT_AMMETER}: invalid reading",
+    }
+
+    framework.config["error_simulation"]["enabled"] = False
+    latest = framework.record_run(DEFAULT_AMMETER)
+    comparison = framework.compare_to_previous(latest)
+    assert comparison["previous_count"] == 1
+    assert comparison["compared"][0]["run_id"] == first["run_id"]

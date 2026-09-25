@@ -13,6 +13,15 @@ from Ammeters.client import request_current_from_ammeter
 from ..utils.config import load_config
 
 
+class SimulatedReadingError(RuntimeError):
+    def __init__(self, message: str, *, mode: str, sample_number: int, started_at: str, readings: list):
+        super().__init__(message)
+        self.mode = mode
+        self.sample_number = sample_number
+        self.started_at = started_at
+        self.readings = readings
+
+
 class AmmeterTestFramework:
     def __init__(self, config_path: str = "config/config.yaml", results_dir: str | None = None):
         self.config = load_config(config_path)
@@ -43,7 +52,16 @@ class AmmeterTestFramework:
         for index in range(count):
             self._wait_until(start + index * period)
             taken_at = datetime.now(timezone.utc).isoformat()
-            self._simulated_error(ammeter_type, index + 1)
+            try:
+                self._simulated_error(ammeter_type, index + 1)
+            except SimulatedReadingError as error:
+                raise SimulatedReadingError(
+                    str(error),
+                    mode=error.mode,
+                    sample_number=error.sample_number,
+                    started_at=started_at,
+                    readings=list(readings),
+                ) from None
             readings.append({
                 "current": self.run_test(ammeter_type),
                 "taken_at": taken_at,
@@ -93,7 +111,24 @@ class AmmeterTestFramework:
         }
 
     def record_run(self, ammeter_type: str) -> dict:
-        analysis = self.analyze(ammeter_type)
+        try:
+            analysis = self.analyze(ammeter_type)
+        except SimulatedReadingError as error:
+            record = {
+                "run_id": uuid.uuid4().hex,
+                "ammeter_type": ammeter_type,
+                "started_at": error.started_at,
+                "sampling": self.config["testing"]["sampling"],
+                "samples": [reading["current"] for reading in error.readings],
+                "sample_times": [reading["taken_at"] for reading in error.readings],
+                "error": {
+                    "mode": error.mode,
+                    "sample_number": error.sample_number,
+                    "message": str(error),
+                },
+            }
+            self._write_record(record)
+            raise
         run_id = uuid.uuid4().hex
         record = {
             "run_id": run_id,
@@ -117,8 +152,13 @@ class AmmeterTestFramework:
             save_sample_plot(directory / plot_name, ammeter_type, record)
             record["plot"] = plot_name
 
-        (directory / f"{run_id}.json").write_text(json.dumps(record), encoding="utf-8")
+        self._write_record(record)
         return record
+
+    def _write_record(self, record: dict) -> None:
+        directory = Path(self.results_dir)
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / f"{record['run_id']}.json").write_text(json.dumps(record), encoding="utf-8")
 
     def load_run(self, run_id: str) -> dict:
         path = Path(self.results_dir) / f"{run_id}.json"
@@ -140,7 +180,7 @@ class AmmeterTestFramework:
     def compare_to_previous(self, record: dict) -> dict:
         earlier = [
             run for run in self.list_runs(record["ammeter_type"])
-            if run["run_id"] != record["run_id"] and run["started_at"] < record["started_at"]
+            if run["run_id"] != record["run_id"] and run["started_at"] < record["started_at"] and "error" not in run
         ]
         limit = self.config["result_management"]["compare_with_last"]
         recent = list(reversed(earlier[-limit:]))
@@ -189,8 +229,12 @@ class AmmeterTestFramework:
             raise ValueError(f"Unknown error simulation mode: {mode}")
         if sample_number != simulation.get("fail_on_sample"):
             return
-        raise RuntimeError(
-            f"Simulated error on sample {sample_number} for {ammeter_type}: invalid reading"
+        raise SimulatedReadingError(
+            f"Simulated error on sample {sample_number} for {ammeter_type}: invalid reading",
+            mode=mode,
+            sample_number=sample_number,
+            started_at="",
+            readings=[],
         )
 
     @staticmethod
