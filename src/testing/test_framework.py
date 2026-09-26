@@ -9,7 +9,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from Ammeters.client import CURRENT_UNIT, request_current_from_ammeter
+from Ammeters.client import CURRENT_UNIT, AmmeterError, request_current_from_ammeter
 from ..utils.config import load_config
 
 
@@ -35,9 +35,12 @@ class AmmeterTestFramework:
             known = ", ".join(self.config.get("ammeters", {}))
             raise ValueError(f"Unknown ammeter '{ammeter_type}'. Known: {known}") from None
         timeout = self.config["testing"]["request_timeout_seconds"]
-        return request_current_from_ammeter(
-            ammeter["port"], ammeter["command"].encode("utf-8"), timeout
-        )
+        try:
+            return request_current_from_ammeter(
+                ammeter["port"], ammeter["command"].encode("utf-8"), timeout
+            )
+        except AmmeterError as error:
+            raise AmmeterError(f"{ammeter_type}: {error}") from None
 
     def collect_samples(self, ammeter_type: str) -> list[float]:
         readings = self._collect_readings(ammeter_type)["readings"]

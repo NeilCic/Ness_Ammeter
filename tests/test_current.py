@@ -2,10 +2,11 @@ import math
 import socket
 import threading
 import time
+from contextlib import contextmanager
 
 import pytest
 
-from Ammeters.client import CURRENT_UNIT, request_current_from_ammeter
+from Ammeters.client import CURRENT_UNIT, AmmeterError, request_current_from_ammeter
 from src.testing.test_framework import AmmeterTestFramework
 from src.utils.config import load_config
 from src.utils.emulators import start_emulators
@@ -23,32 +24,73 @@ def test_start_emulators_reports_a_taken_port():
     SESSION_LOG.info(f"caught {caught.value}")
 
 
-def test_request_times_out_when_the_meter_stays_silent():
+@contextmanager
+def _fake_meter(reply: bytes | None):
+    """Listen on a free port and answer one request with `reply`, or stay silent when reply is None."""
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind(("localhost", 0))
     server.listen()
     port = server.getsockname()[1]
-    SESSION_LOG.info(f"opened a listener on localhost port {port}")
+    SESSION_LOG.info(f"opened a fake meter on localhost port {port} that replies {reply!r}")
     release = threading.Event()
 
-    def accept_and_hold():
+    def serve_once():
         connection, _ = server.accept()
-        SESSION_LOG.info(f"listener on port {port} accepted a connection and will send nothing")
         with connection:
             connection.recv(1024)
-            release.wait(2)
+            if reply is None:
+                release.wait(2)
+            else:
+                connection.sendall(reply)
 
-    threading.Thread(target=accept_and_hold, daemon=True).start()
+    threading.Thread(target=serve_once, daemon=True).start()
     try:
-        wrong_cmd = b"MEASURE"
-        SESSION_LOG.info(f"sending {wrong_cmd=} to port {port} with a 0.2s timeout")
-        with pytest.raises(RuntimeError, match=f"No response from port {port} within 0.2 seconds") as caught:
-            request_current_from_ammeter(port, wrong_cmd, 0.2)
-        SESSION_LOG.info(f"caught {caught.value}")
+        yield port
     finally:
         release.set()
         server.close()
-        SESSION_LOG.info(f"released the hold and closed the listener on port {port}")
+        SESSION_LOG.info(f"closed the fake meter on port {port}")
+
+
+def test_request_times_out_when_the_meter_stays_silent():
+    with _fake_meter(reply=None) as port:
+        SESSION_LOG.info(f"requesting from port {port} with a 0.2s timeout")
+        with pytest.raises(AmmeterError, match=f"No response from port {port} within 0.2 seconds") as caught:
+            request_current_from_ammeter(port, b"MEASURE", 0.2)
+        SESSION_LOG.info(f"caught {caught.value}")
+
+
+def test_request_fails_clearly_when_no_meter_is_listening():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("localhost", 0))
+        port = probe.getsockname()[1]
+    SESSION_LOG.info(f"requesting from port {port}, which nothing listens on")
+    with pytest.raises(AmmeterError, match=f"No meter is reachable on port {port}") as caught:
+        request_current_from_ammeter(port, b"MEASURE", 0.3)
+    SESSION_LOG.info(f"caught {caught.value}")
+
+
+@pytest.mark.parametrize(
+    ("reply", "reason"),
+    [(b"ERR: sensor fault", "is not a number"), (b"nan", "is not a finite current")],
+)
+def test_request_rejects_a_reply_that_is_not_a_current(reply, reason):
+    with _fake_meter(reply) as port:
+        with pytest.raises(AmmeterError, match=reason) as caught:
+            request_current_from_ammeter(port, b"MEASURE", 1)
+        SESSION_LOG.info(f"caught {caught.value}")
+
+
+def test_run_test_names_the_meter_that_failed():
+    framework = AmmeterTestFramework()
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("localhost", 0))
+        framework.config["ammeters"][DEFAULT_AMMETER]["port"] = probe.getsockname()[1]
+    framework.config["testing"]["request_timeout_seconds"] = 0.3
+    SESSION_LOG.info(f"pointing {DEFAULT_AMMETER} at a port nothing listens on")
+    with pytest.raises(AmmeterError, match=f"^{DEFAULT_AMMETER}: No meter is reachable") as caught:
+        framework.run_test(DEFAULT_AMMETER)
+    SESSION_LOG.info(f"caught {caught.value}")
 
 
 @pytest.mark.parametrize("ammeter_type", AMMETERS)
