@@ -1,10 +1,13 @@
 import errno
+import logging
 import socket
 import time
 import random
 from abc import ABC, abstractmethod
 
 NotImplementedErrorMsg = "Subclasses must implement this property."
+
+log = logging.getLogger("ammeters")
 
 
 class AmmeterEmulatorBase(ABC):
@@ -32,11 +35,11 @@ class AmmeterEmulatorBase(ABC):
         if server is None:
             server = self.bind_server()
         with server:
-            print(f"{self.__class__.__name__} is running on port {self.port}")
+            log.info(f"{self.__class__.__name__} is running on port {self.port}")
             while True:
                 conn, addr = server.accept()
                 with conn:
-                    print(f"Connected by {addr}")
+                    log.debug(f"Connected by {addr}")
                     data = conn.recv(1024)
                     if data == self.get_current_command:
                         # Call the specific measure_current() method defined in subclasses

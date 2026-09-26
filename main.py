@@ -1,3 +1,4 @@
+import logging
 import sys
 
 from Ammeters.client import CURRENT_UNIT
@@ -51,6 +52,8 @@ def run(framework: AmmeterTestFramework) -> int:
 
 
 def main() -> int:
+    # INFO shows the emulators starting. DEBUG adds every request and the emulators' internal values.
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     framework = AmmeterTestFramework()
     start_emulators(framework.config, wait_seconds=5)
     return run(framework)

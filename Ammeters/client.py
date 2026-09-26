@@ -1,8 +1,11 @@
+import logging
 import math
 from socket import socket, AF_INET, SOCK_STREAM
 
 # Returned current is in amperes.
 CURRENT_UNIT = "A"
+
+log = logging.getLogger("ammeters.client")
 
 
 class AmmeterError(RuntimeError):
@@ -30,5 +33,5 @@ def request_current_from_ammeter(port: int, command: bytes, timeout: float) -> f
         raise AmmeterError(f"Port {port} replied with {text!r}, which is not a number") from None
     if not math.isfinite(current):
         raise AmmeterError(f"Port {port} replied with {text!r}, which is not a finite current")
-    print(f"Received current measurement from port {port}: {current} {CURRENT_UNIT}")
+    log.debug(f"Received current measurement from port {port}: {current} {CURRENT_UNIT}")
     return current
