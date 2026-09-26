@@ -14,9 +14,16 @@ from ..utils.config import load_config
 
 
 class SimulatedReadingError(RuntimeError):
-    def __init__(self, message: str, *, mode: str, sample_number: int, started_at: str, readings: list):
-        super().__init__(message)
-        self.mode = mode
+    """Raised in place of a meter request when error simulation says this sample should fail."""
+
+
+class RunFailed(RuntimeError):
+    """A sample could not be taken. Carries the readings collected before the failure so they can be saved."""
+
+    def __init__(self, cause: Exception, *, kind: str, sample_number: int, started_at: str, readings: list):
+        super().__init__(str(cause))
+        self.cause = cause
+        self.kind = kind  # "meter" for a failed request, "simulated" for error simulation
         self.sample_number = sample_number
         self.started_at = started_at
         self.readings = readings
@@ -57,18 +64,16 @@ class AmmeterTestFramework:
             taken_at = datetime.now(timezone.utc).isoformat()
             try:
                 self._simulated_error(ammeter_type, index + 1)
-            except SimulatedReadingError as error:
-                raise SimulatedReadingError(
-                    str(error),
-                    mode=error.mode,
-                    sample_number=error.sample_number,
+                current = self.run_test(ammeter_type)
+            except (SimulatedReadingError, AmmeterError) as error:
+                raise RunFailed(
+                    error,
+                    kind="simulated" if isinstance(error, SimulatedReadingError) else "meter",
+                    sample_number=index + 1,
                     started_at=started_at,
                     readings=list(readings),
                 ) from None
-            readings.append({
-                "current": self.run_test(ammeter_type),
-                "taken_at": taken_at,
-            })
+            readings.append({"current": current, "taken_at": taken_at})
         return {"started_at": started_at, "readings": readings}
 
     def _resolve_sampling(self) -> tuple[int, float, float]:
@@ -116,7 +121,7 @@ class AmmeterTestFramework:
     def record_run(self, ammeter_type: str) -> dict:
         try:
             analysis = self.analyze(ammeter_type)
-        except SimulatedReadingError as error:
+        except RunFailed as error:
             record = {
                 "run_id": uuid.uuid4().hex,
                 "ammeter_type": ammeter_type,
@@ -126,7 +131,7 @@ class AmmeterTestFramework:
                 "samples": [reading["current"] for reading in error.readings],
                 "sample_times": [reading["taken_at"] for reading in error.readings],
                 "error": {
-                    "mode": error.mode,
+                    "kind": error.kind,
                     "sample_number": error.sample_number,
                     "message": str(error),
                 },
@@ -234,11 +239,7 @@ class AmmeterTestFramework:
         if sample_number != simulation.get("fail_on_sample"):
             return
         raise SimulatedReadingError(
-            f"Simulated error on sample {sample_number} for {ammeter_type}: invalid reading",
-            mode=mode,
-            sample_number=sample_number,
-            started_at="",
-            readings=[],
+            f"Simulated error on sample {sample_number} for {ammeter_type}: invalid reading"
         )
 
     @staticmethod

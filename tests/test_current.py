@@ -6,8 +6,9 @@ from contextlib import contextmanager
 
 import pytest
 
+import main as main_script
 from Ammeters.client import CURRENT_UNIT, AmmeterError, request_current_from_ammeter
-from src.testing.test_framework import AmmeterTestFramework
+from src.testing.test_framework import AmmeterTestFramework, RunFailed
 from src.utils.config import load_config
 from src.utils.emulators import start_emulators
 from src.utils.logger import SESSION_LOG
@@ -25,25 +26,26 @@ def test_start_emulators_reports_a_taken_port():
 
 
 @contextmanager
-def _fake_meter(reply: bytes | None):
-    """Listen on a free port and answer one request with `reply`, or stay silent when reply is None."""
+def _fake_meter(*replies: bytes | None):
+    """Listen on a free port and answer one request per reply, in order. A None reply stays silent."""
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind(("localhost", 0))
     server.listen()
     port = server.getsockname()[1]
-    SESSION_LOG.info(f"opened a fake meter on localhost port {port} that replies {reply!r}")
+    SESSION_LOG.info(f"opened a fake meter on localhost port {port} that replies {replies!r}")
     release = threading.Event()
 
-    def serve_once():
-        connection, _ = server.accept()
-        with connection:
-            connection.recv(1024)
-            if reply is None:
-                release.wait(2)
-            else:
-                connection.sendall(reply)
+    def serve():
+        for reply in replies:
+            connection, _ = server.accept()
+            with connection:
+                connection.recv(1024)
+                if reply is None:
+                    release.wait(2)
+                else:
+                    connection.sendall(reply)
 
-    threading.Thread(target=serve_once, daemon=True).start()
+    threading.Thread(target=serve, daemon=True).start()
     try:
         yield port
     finally:
@@ -52,8 +54,14 @@ def _fake_meter(reply: bytes | None):
         SESSION_LOG.info(f"closed the fake meter on port {port}")
 
 
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("localhost", 0))
+        return probe.getsockname()[1]
+
+
 def test_request_times_out_when_the_meter_stays_silent():
-    with _fake_meter(reply=None) as port:
+    with _fake_meter(None) as port:
         SESSION_LOG.info(f"requesting from port {port} with a 0.2s timeout")
         with pytest.raises(AmmeterError, match=f"No response from port {port} within 0.2 seconds") as caught:
             request_current_from_ammeter(port, b"MEASURE", 0.2)
@@ -61,9 +69,7 @@ def test_request_times_out_when_the_meter_stays_silent():
 
 
 def test_request_fails_clearly_when_no_meter_is_listening():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("localhost", 0))
-        port = probe.getsockname()[1]
+    port = _free_port()
     SESSION_LOG.info(f"requesting from port {port}, which nothing listens on")
     with pytest.raises(AmmeterError, match=f"No meter is reachable on port {port}") as caught:
         request_current_from_ammeter(port, b"MEASURE", 0.3)
@@ -83,9 +89,7 @@ def test_request_rejects_a_reply_that_is_not_a_current(reply, reason):
 
 def test_run_test_names_the_meter_that_failed():
     framework = AmmeterTestFramework()
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("localhost", 0))
-        framework.config["ammeters"][DEFAULT_AMMETER]["port"] = probe.getsockname()[1]
+    framework.config["ammeters"][DEFAULT_AMMETER]["port"] = _free_port()
     framework.config["testing"]["request_timeout_seconds"] = 0.3
     SESSION_LOG.info(f"pointing {DEFAULT_AMMETER} at a port nothing listens on")
     with pytest.raises(AmmeterError, match=f"^{DEFAULT_AMMETER}: No meter is reachable") as caught:
@@ -283,7 +287,7 @@ def test_simulated_failure_is_saved_and_skipped_in_comparison(tmp_path):
     assert "mean" not in failed
     assert "plot" not in failed
     assert failed["error"] == {
-        "mode": "invalid_reading",
+        "kind": "simulated",
         "sample_number": 3,
         "message": f"Simulated error on sample 3 for {DEFAULT_AMMETER}: invalid reading",
     }
@@ -297,3 +301,47 @@ def test_simulated_failure_is_saved_and_skipped_in_comparison(tmp_path):
     )
     assert comparison["previous_count"] == 1
     assert comparison["compared"][0]["run_id"] == first["run_id"]
+
+
+def test_meter_failure_is_saved_with_the_samples_taken_so_far(tmp_path):
+    framework = AmmeterTestFramework(results_dir=tmp_path)
+    with _fake_meter(b"1.0", b"2.0", b"ERR: sensor fault") as port:
+        framework.config["ammeters"][DEFAULT_AMMETER]["port"] = port
+        SESSION_LOG.info(f"recording {DEFAULT_AMMETER} from a meter that answers twice, then sends garbage")
+        with pytest.raises(RunFailed, match="is not a number") as caught:
+            framework.record_run(DEFAULT_AMMETER)
+    SESSION_LOG.info(f"caught {caught.value}")
+    assert caught.value.kind == "meter"
+    assert caught.value.sample_number == 3
+
+    (failed,) = framework.list_runs(DEFAULT_AMMETER)
+    SESSION_LOG.info(f"saved run {failed['run_id']} with samples {failed['samples']}")
+    assert failed["samples"] == [1.0, 2.0]
+    assert len(failed["sample_times"]) == 2
+    assert "mean" not in failed
+    assert failed["error"] == {
+        "kind": "meter",
+        "sample_number": 3,
+        "message": f"{DEFAULT_AMMETER}: Port {port} replied with 'ERR: sensor fault', which is not a number",
+    }
+
+
+def test_main_reports_a_failed_meter_and_ranks_the_rest(tmp_path, capsys):
+    framework = AmmeterTestFramework(results_dir=tmp_path)
+    framework.config["ammeters"][DEFAULT_AMMETER]["port"] = _free_port()
+    framework.config["testing"]["request_timeout_seconds"] = 0.3
+    SESSION_LOG.info(f"running main with {DEFAULT_AMMETER} pointed at a dead port")
+
+    exit_code = main_script.run(framework)
+    output = capsys.readouterr().out
+    SESSION_LOG.info(f"main exited with {exit_code}")
+
+    assert exit_code == 1
+    assert f"FAILED {DEFAULT_AMMETER} on sample 1: {DEFAULT_AMMETER}: No meter is reachable" in output
+    assert "(0 samples saved)" in output
+    others = [name for name in AMMETERS if name != DEFAULT_AMMETER]
+    for place, name in enumerate(others, start=1):
+        assert any(line.startswith(f"{place}. ") for line in output.splitlines()), f"no rank {place}"
+        assert f". {name}: mean" in output
+    assert len(framework.list_runs(DEFAULT_AMMETER)) == 1
+    assert all(len(framework.list_runs(name)) == 1 for name in others)
