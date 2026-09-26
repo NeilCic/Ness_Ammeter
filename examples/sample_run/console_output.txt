@@ -1,0 +1,14 @@
+GreenleeAmmeter is running on port 5000
+EntesAmmeter is running on port 5001
+CircutorAmmeter is running on port 5002
+$ python main.py
+------------------------------------------------------------
+1. circutor: mean 0.0285 A, median 0.0306 A, std 0.0123 A, min 0.0141 A, max 0.0415 A, relative spread 0.4326, plot b33b537333c145c49ef0c4813699427e.png
+no earlier runs
+------------------------------------------------------------
+2. entes: mean 106.0534 A, median 98.2750 A, std 59.9276 A, min 32.6951 A, max 173.7799 A, relative spread 0.5651, plot 5a9b886d0dfc4de1bf29992f92fbaabc.png
+no earlier runs
+------------------------------------------------------------
+3. greenlee: mean 0.1881 A, median 0.1351 A, std 0.1601 A, min 0.0249 A, max 0.4493 A, relative spread 0.8511, plot 46ad997fb7924c6faceb01385b82a984.png
+no earlier runs
+exit code 0
