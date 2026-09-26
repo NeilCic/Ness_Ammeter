@@ -44,7 +44,7 @@ Example output:
 
 ```
 GreenleeAmmeter is running on port 5000
-EntqesAmmeter is running on port 5001
+EntesAmmeter is running on port 5001
 CircutorAmmeter is running on port 5002
 ------------------------------------------------------------
 1. circutor: mean 0.0285 A, median 0.0306 A, std 0.0123 A, min 0.0141 A, max 0.0415 A, relative spread 0.4326, plot b33b537333c145c49ef0c4813699427e.png
@@ -179,5 +179,5 @@ src/utils/emulators.py         start the emulators from the config
 src/utils/config.py            load the YAML
 src/utils/logger.py            narrated test log
 tests/                         pytest suite and session fixture
-examples/sample_run/           three saved runs and their console output
+examples/sample_run/           one saved run and its console output
 ```
